@@ -1,27 +1,27 @@
-# [Idea2Img](https://idea2img.github.io/) <img src="./icon.png" width="5%"/>
-[Idea2Img: Iterative Self-Refinement with GPT-4V(ision) for Automatic Image Design and Generation](https://arxiv.org/pdf/2310.08541.pdf)
+# Custom Idea2Img
 
-by [Zhengyuan Yang](http://zhengyuan.info/), [Jianfeng Wang](https://jianfengwang.me/), [Linjie Li](https://scholar.google.com/citations?user=WR875gYAAAAJ&hl=en), [Kevin Lin](https://sites.google.com/site/kevinlin311tw/me), [Chung-Ching Lin](https://www.microsoft.com/en-us/research/people/chunglin/), [Zicheng Liu](https://zicliu.wixsite.com/mysite), and [Lijuan Wang](https://www.microsoft.com/en-us/research/people/lijuanw/)
-
+### Cloned from the Official Repo of [Idea2Img](https://idea2img.github.io/) 
 
 ### Introduction
-Built upon GPT-4V(ision), [Idea2Img](https://idea2img.github.io/) is a multimodal iterative self-refinement system that enhances any T2I model for automatic image design and generation, enabling various new image creation functionalities togther with better visual qualities.
 
-<p align="center">
-  <img src="https://idea2img.github.io/images/teaser.png" width="75%"/>
-</p>
+Modifying the Idea2Img Code for custom use by adapting it to the latest models.
 
+#### Changes so far
+Added support to access and send API requests using Managed identity, modified code to support GPT-4o and restructured the request body data format such that is suitable for the AzureOpenAI GPT-4o model.
+
+### WIP
+Modifying and switching the T2I models to the latest ones - SD3 and Flux Dev
 
 ### Prerequisites
 
-* Obtain the public [OpenAI GPT-4V API key](https://platform.openai.com/docs/guides/vision) and setup T2I inference accordingly, e.g., [SDXL](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0).
+* Obtain the public [Azure OpenAI GPT-4o API key]([https://platform.openai.com/docs/guides/vision](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models?tabs=python-secure#gpt-4o-and-gpt-4-turbo)) and setup T2I inference accordingly, e.g., [SD3](https://huggingface.co/stabilityai/stable-diffusion-3-medium) and [Flux Dev](https://huggingface.co/black-forest-labs/FLUX.1-dev).
 
 ## Installation
 
 1. Clone the repository
 
     ```
-    git clone https://github.com/zyang-ur/idea2img.git
+    git clone https://github.com/DeepthiSudharsan/custom-idea2img.git
     ```
 
 ### Running
@@ -29,7 +29,7 @@ Built upon GPT-4V(ision), [Idea2Img](https://idea2img.github.io/) is a multimoda
 
     ```
     mkdir output
-    python idea2img_pipeline.py --api_key OAI_GPT4V_Key --testfile testsample.txt --fewshot --select_fewshot
+    python idea2img_pipeline.py --testfile testsample.txt --fewshot --select_fewshot
     ```
 
 ### Results
@@ -38,12 +38,3 @@ Built upon GPT-4V(ision), [Idea2Img](https://idea2img.github.io/) is a multimoda
 <p align="center">
   <img src="./main_de3.png" width="75%"/>
 </p>
-
-### Citation
-
-    @article{yang2023idea2img,
-      title={Idea2img: Iterative self-refinement with gpt-4v (ision) for automatic image design and generation},
-      author={Yang, Zhengyuan and Wang, Jianfeng and Li, Linjie and Lin, Kevin and Lin, Chung-Ching and Liu, Zicheng and Wang, Lijuan},
-      journal={arXiv preprint arXiv:2310.08541},
-      year={2023}
-    }
