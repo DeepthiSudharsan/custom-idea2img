@@ -8,19 +8,44 @@ from tqdm import tqdm
 import requests
 import random
 import torch
-from datetime import datetime
+# from datetime import datetime
 from PIL import Image
+
+from dotenv import load_dotenv
+from azure.identity import DefaultAzureCredential
+
+load_dotenv()
+
+managed_identity_client_id = os.environ.get("MANAGED_IDENTITY_CLIENT_ID")
+openai_endpoint = os.environ.get("OPENAI_ENDPOINT")
+
+token_credential = DefaultAzureCredential(managed_identity_client_id=managed_identity_client_id)
+
+token = token_credential.get_token('https://cognitiveservices.azure.com/.default')
 
 def gptv_query(transcript=None, temp=0.):
     max_tokens = 512
     wait_time = 10
 
+    for x in range(len(transcript)):
+        message = transcript[x]
+        new_content = []
+        for content in message["content"]:
+            if type(content) == str:
+                new_content.append({
+                    "type": "text",
+                    "text": content
+                })
+            else:
+                new_content.append(content)
+        message["content"] = new_content
+
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
+        "Authorization": f"Bearer {token.token}"
     }
     data = {
-        'model': 'gpt-4-vision-preview',
+        'model': 'gpt-4o',
         'max_tokens':max_tokens, 
         'temperature': temp,
         'top_p': 0.5,
@@ -33,14 +58,13 @@ def gptv_query(transcript=None, temp=0.):
     while len(response_text)<2:
         retry += 1
         try:
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, data=json.dumps(data)) 
+            response = requests.post(openai_endpoint, headers=headers, data=json.dumps(data)) 
             response_json = response.json()
         except Exception as e:
             if random.random()<1: print(e)
             time.sleep(wait_time)
             continue
         if response.status_code != 200:
-            print(response.headers,response.content)
             if random.random()<0.01: print(f"The response status code for is {response.status_code} (Not OK)")
             time.sleep(wait_time)
             data['temperature'] = min(data['temperature'] + 0.2, 1.0)
@@ -49,6 +73,7 @@ def gptv_query(transcript=None, temp=0.):
             time.sleep(wait_time)
             continue
         response_text = response_json["choices"][0]["message"]["content"]
+        print(response_text)
     return response_json["choices"][0]["message"]["content"]
 
 def encode_image(image_path):
@@ -149,6 +174,7 @@ def gptv_init_prompt(user_prompt, img_prompt, idea_transcript, args):
     ## Example & Query prompt
     transcript[-1]["content"] = transcript[-1]["content"] + idea_transcript
     transcript[-1]["content"].append("Based on the above information, you will write %d detailed prompts exactly about the IDEA follow the rules. Each prompt is wrapped with <START> and <END>.\n"%args.num_prompt)
+
     response = gptv_query(transcript)
     if '<START>' not in response or '<END>' not in response: ## one format retry
         response = gptv_query(transcript, temp=0.1)
@@ -256,23 +282,12 @@ def gptv_revision_prompt(user_prompt, img_prompt, idea_transcript, image_history
         prompts = prompts + ['blank image']
     return prompts
 
-class t2i_sd15():
-    def __init__(self):
-        from diffusers import StableDiffusionPipeline
-        model_id = "runwayml/stable-diffusion-v1-5"
-        self.pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
-        self.pipe.to("cuda")
-        self.pipe.set_progress_bar_config(disable=True)
-    def inference(self,prompt,savename):
-        image = self.pipe(prompt).images[0]
-        image.save(savename)
-
-class t2i_sdxl():
+class t2i_sd3():
     def __init__(self, refiner=False, img2img=True):
-        from diffusers import DiffusionPipeline
+        from diffusers import StableDiffusion3Pipeline, DiffusionPipeline
         self.refiner = refiner
         self.img2img = img2img
-        self.pipe = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16, use_safetensors=True, variant="fp16")
+        self.pipe = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3-medium-diffusers", torch_dtype=torch.float16, use_safetensors=True, variant="fp16")
         # self.pipe.to("cuda")
         self.pipe.enable_model_cpu_offload()
         self.pipe.enable_xformers_memory_efficient_attention()
@@ -284,8 +299,43 @@ class t2i_sdxl():
             self.refine_pipe.enable_xformers_memory_efficient_attention()
             self.refine_pipe.set_progress_bar_config(disable=True)
         if self.img2img:
-            from diffusers import StableDiffusionXLImg2ImgPipeline
-            self.img2img_pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+            # from diffusers import StableDiffusionXLImg2ImgPipeline
+            self.img2img_pipe = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3-medium-diffusers", torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+            # self.pipe.to("cuda")
+            self.img2img_pipe.enable_model_cpu_offload()
+            self.img2img_pipe.enable_xformers_memory_efficient_attention()
+            self.img2img_pipe.set_progress_bar_config(disable=True)            
+
+    def inference(self,prompt,savename):
+        image = self.pipe(prompt,output_type="latent").images[0]
+        if self.refiner:
+            image = self.refine_pipe(prompt=prompt, image=image[None, :]).images[0]
+        image.save(savename)
+    def img2img_inference(self,image,prompt,savename,strength=1.0):
+        image = self.img2img_pipe(prompt=prompt, image=image, strength=strength, output_type="latent").images[0]
+        if self.refiner:
+            image = self.refine_pipe(prompt=prompt, image=image[None, :]).images[0]
+        image.save(savename)
+
+class t2i_fluxdev():
+    def __init__(self, refiner=False, img2img=True):
+        from diffusers import FluxPipeline
+        self.refiner = refiner
+        self.img2img = img2img
+        self.pipe = FluxPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=torch.float16, use_safetensors=True, variant="fp16")
+        # self.pipe.to("cuda")
+        self.pipe.enable_model_cpu_offload()
+        self.pipe.enable_xformers_memory_efficient_attention()
+        self.pipe.set_progress_bar_config(disable=True)
+        # if self.refiner:
+        #     self.refine_pipe = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-refiner-1.0",text_encoder_2=self.pipe.text_encoder_2,vae=self.pipe.vae,torch_dtype=torch.float16,use_safetensors=True,variant="fp16",)
+        #     # self.pipe.to("cuda")
+        #     self.refine_pipe.enable_model_cpu_offload()
+        #     self.refine_pipe.enable_xformers_memory_efficient_attention()
+        #     self.refine_pipe.set_progress_bar_config(disable=True)
+        if self.img2img:
+            from diffusers import FluxPipeline
+            self.img2img_pipe = FluxPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
             # self.pipe.to("cuda")
             self.img2img_pipe.enable_model_cpu_offload()
             self.img2img_pipe.enable_xformers_memory_efficient_attention()
@@ -306,17 +356,17 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--api_key", type=str, help="OpenAI GPT-4V API key; https://platform.openai.com/docs/guides/vision")
-    # parser.add_argument("--huggingface_key", type=str, help="huggingface SDXL key")
+    # parser.add_argument("--huggingface_key", type=str, help="huggingface SD3 key")
     parser.add_argument("--testfile", type=str, default="testsample.txt")
     parser.add_argument("--num_img", type=int, default=1, help="number of images to generate per prompt")
     parser.add_argument("--num_prompt", type=int, default=3, help="number of prompts to search each round")
     parser.add_argument("--max_rounds", type=int, default=3, help="max number of iter rounds")
     parser.add_argument("--verbose", default=False, action="store_true")
-    parser.add_argument("--foldername", type=str, default="sdxl_iter")
+    parser.add_argument("--foldername", type=str, default="sd3_iter")
     parser.add_argument("--strength", type=float, default=1.00, help="strength of img2img pipeline")
     parser.add_argument("--fewshot", default=False, action="store_true")
     parser.add_argument("--select_fewshot", default=False, action="store_true")
-    parser.add_argument("--img2img", default=False, action="store_true", help="if use SDXL img2img pipeline, instead of SDXL T2I. Both with refiner in default.")
+    parser.add_argument("--img2img", default=False, action="store_true", help="if use SD3 img2img pipeline, instead of SD3 T2I. Both with refiner in default.")
     args = parser.parse_args()
     assert(args.num_img==1)
 
@@ -324,8 +374,8 @@ def main():
     # access_token_write = args.huggingface_key
     # login(token = access_token_write)
 
-    global api_key
-    api_key = args.api_key
+    # global api_key
+    # api_key = args.api_key
 
     os.system('mkdir -p output/%s'%args.foldername)
     os.system('mkdir -p output/%s/iter'%args.foldername)
@@ -335,7 +385,7 @@ def main():
 
     sample_list = [x.strip() for x in list(open(args.testfile,'r'))]
     # t2i_model = t2i_sd15()
-    t2i_model = t2i_sdxl(refiner=True, img2img=True)
+    t2i_model = t2i_sd3(refiner=True, img2img=True)
 
     for sample_ii in tqdm(range(len(sample_list))):
         user_prompt, img_prompt = sample_list[sample_ii], None
