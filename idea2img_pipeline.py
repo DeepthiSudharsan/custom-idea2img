@@ -351,6 +351,40 @@ class t2i_fluxdev():
         if self.refiner:
             image = self.refine_pipe(prompt=prompt, image=image[None, :]).images[0]
         image.save(savename)
+class t2i_sdxl():
+    def __init__(self, refiner=False, img2img=True):
+        from diffusers import DiffusionPipeline
+        self.refiner = refiner
+        self.img2img = img2img
+        self.pipe = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16, use_safetensors=True, variant="fp16")
+        # self.pipe.to("cuda")
+        self.pipe.enable_model_cpu_offload()
+        self.pipe.enable_xformers_memory_efficient_attention()
+        self.pipe.set_progress_bar_config(disable=True)
+        if self.refiner:
+            self.refine_pipe = DiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-xl-refiner-1.0",text_encoder_2=self.pipe.text_encoder_2,vae=self.pipe.vae,torch_dtype=torch.float16,use_safetensors=True,variant="fp16",)
+            # self.pipe.to("cuda")
+            self.refine_pipe.enable_model_cpu_offload()
+            self.refine_pipe.enable_xformers_memory_efficient_attention()
+            self.refine_pipe.set_progress_bar_config(disable=True)
+        if self.img2img:
+            from diffusers import StableDiffusionXLImg2ImgPipeline
+            self.img2img_pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16, variant="fp16", use_safetensors=True)
+            # self.pipe.to("cuda")
+            self.img2img_pipe.enable_model_cpu_offload()
+            self.img2img_pipe.enable_xformers_memory_efficient_attention()
+            self.img2img_pipe.set_progress_bar_config(disable=True)            
+
+    def inference(self,prompt,savename):
+        image = self.pipe(prompt,output_type="latent").images[0]
+        if self.refiner:
+            image = self.refine_pipe(prompt=prompt, image=image[None, :]).images[0]
+        image.save(savename)
+    def img2img_inference(self,image,prompt,savename,strength=1.0):
+        image = self.img2img_pipe(prompt=prompt, image=image, strength=strength, output_type="latent").images[0]
+        if self.refiner:
+            image = self.refine_pipe(prompt=prompt, image=image[None, :]).images[0]
+        image.save(savename)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -385,7 +419,7 @@ def main():
 
     sample_list = [x.strip() for x in list(open(args.testfile,'r'))]
     # t2i_model = t2i_sd15()
-    t2i_model = t2i_sd3(refiner=True, img2img=True)
+    t2i_model = t2i_sdxl(refiner=True, img2img=True)
 
     for sample_ii in tqdm(range(len(sample_list))):
         user_prompt, img_prompt = sample_list[sample_ii], None
